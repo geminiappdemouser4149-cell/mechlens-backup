@@ -61,6 +61,7 @@ ARCHITECTURE_DESCRIPTIONS: dict[str, str] = {
     "T5GemmaForConditionalGeneration": "Google's T5Gemma encoder-decoder model with Gemma-style RoPE, GQA, and gated MLP",
     "BartForConditionalGeneration": "Facebook's BART encoder-decoder model",
     "HunYuanDenseV1ForCausalLM": "Tencent's open source decoder models",
+    "CohereForCausalLM": "Cohere's Command-R and Aya causal language models",
     # Unsupported architectures
     "BertModel": "Google's BERT bidirectional encoder for understanding tasks",
     "BertForMaskedLM": "BERT with masked language modeling head",
@@ -96,7 +97,6 @@ ARCHITECTURE_DESCRIPTIONS: dict[str, str] = {
     "LlavaForConditionalGeneration": "Visual instruction-tuned LLaMA",
     "GitModel": "Microsoft's GIT for vision-language",
     "PaliGemmaForConditionalGeneration": "Google's PaliGemma vision-language",
-    "CohereForCausalLM": "Cohere's Command models",
     "DeepseekForCausalLM": "DeepSeek's open models",
     "InternLMForCausalLM": "Shanghai AI Lab's InternLM",
     "BaichuanForCausalLM": "Baichuan's Chinese-focused models",
