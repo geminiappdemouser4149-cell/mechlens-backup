@@ -9,6 +9,129 @@ Supports CohereForCausalLM models (Command-R family) with:
 - Tied embed/unembed weights by default (tie_word_embeddings=True)
 - Interleaved RoPE via CohereRotaryEmbedding (delegated to HF module)
 """
+"""Cohere architecture adapter.
+
+Supports CohereForCausalLM models (Command-R family) with:
+- Parallel attention+MLP sharing a single input_layernorm (no post_attention_layernorm)
+- True LayerNorm (CohereLayerNorm) with weight but no bias
+- GQA (grouped-query attention) with separate Q/K/V/O projections
+- Gated SwiGLU MLP (gate_proj, up_proj, down_proj)
+- Logit scaling: output logits multiplied by config.logit_scale (default 1/16)
+- Tied embed/unembed weights by default (tie_word_embeddings=True)
+- Interleaved RoPE via CohereRotaryEmbedding (delegated to HF module)
+"""
+
+import weakref
+from typing import Any
+
+import torch
+
+from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
+from transformer_lens.model_bridge.generalized_components import (
+    EmbeddingBridge,
+    GatedMLPBridge,
+    LinearBridge,
+    NormalizationBridge,
+    ParallelBlockBridge,
+    PositionEmbeddingsAttentionBridge,
+    RotaryEmbeddingBridge,
+    UnembeddingBridge,
+)
+
+
+class CohereArchitectureAdapter(ArchitectureAdapter):
+    """Architecture adapter for Cohere models (CohereForCausalLM).
+
+    Architectural quirks vs. standard decoder-only models:
+    - Single input_layernorm per block; NO post_attention_layernorm.
+      Attention and MLP both read the SAME normed hidden states (parallel).
+    - CohereLayerNorm is true LayerNorm (mean-subtracting), NOT RMSNorm.
+      It has a weight parameter but NO bias parameter.
+    - Logit scale: CohereForCausalLM.forward multiplies logits by logit_scale
+      (default 0.0625 = 1/16). Folded into unembed.weight via preprocess_weights.
+    - Rotary embeddings use repeat_interleave instead of cat-split (delegated to HF).
+
+    Optional parameters (absent from state_dict by default):
+    - blocks.{i}.attn.b_Q/b_K/b_V/b_O - no bias on projections (attention_bias=False)
+    - blocks.{i}.mlp.b_gate/b_in/b_out - no bias on MLP projections
+    - blocks.{i}.ln1.b - CohereLayerNorm has no bias
+    - ln_final.b - CohereLayerNorm has no bias
+    """
+
+    def __init__(self, cfg: Any) -> None:
+        """Initialize the Cohere architecture adapter."""
+        super().__init__(cfg)
+        self.cfg.rotary_adjacent_pairs = True
+        self.cfg.attn_implementation = "eager"
+        self.cfg.use_qk_norm = bool(getattr(cfg, "use_qk_norm", False))
+        self._bridge_ref: weakref.ReferenceType[Any] | None = None
+
+    def setup_hook_compatibility(self, bridge_model: Any) -> None:
+        self._bridge_ref = weakref.ref(bridge_model)
+
+    def component_mapping(self) -> dict[str, Any]:
+        """Define component mapping for Cohere architecture."""
+        return {
+            "embed": EmbeddingBridge(name="embed_tokens"),
+            "blocks": ParallelBlockBridge(
+                name="layers",
+                submodules={
+                    "ln1": NormalizationBridge(
+                        name="input_layernorm", config=self.cfg, use_native_layernorm_autograd=True
+                    ),
+                    "attn": PositionEmbeddingsAttentionBridge(
+                        name="self_attn",
+                        config=self.cfg,
+                        submodules={
+                            "q": LinearBridge(name="q_proj"),
+                            "k": LinearBridge(name="k_proj"),
+                            "v": LinearBridge(name="v_proj"),
+                            "o": LinearBridge(name="o_proj"),
+                            "q_norm": NormalizationBridge(
+                                name="q_norm", config=self.cfg, optional=True, use_native_layernorm_autograd=True
+                            ),
+                            "k_norm": NormalizationBridge(
+                                name="k_norm", config=self.cfg, optional=True, use_native_layernorm_autograd=True
+                            ),
+                            "rotary_emb": RotaryEmbeddingBridge(name="rotary_emb", config=self.cfg),
+                        },
+                    ),
+                    "mlp": GatedMLPBridge(
+                        name="mlp",
+                        config=self.cfg,
+                        submodules={
+                            "gate": LinearBridge(name="gate_proj"),
+                            "in": LinearBridge(name="up_proj"),
+                            "out": LinearBridge(name="down_proj"),
+                        },
+                    ),
+                },
+            ),
+            "ln_final": NormalizationBridge(
+                name="norm", config=self.cfg, use_native_layernorm_autograd=True
+            ),
+            "unembed": UnembeddingBridge(name="lm_head"),
+        }
+
+    def preprocess_weights(self, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Fold logit_scale into unembed weights before ProcessWeights runs."""
+        scale: float = getattr(self.cfg, "logit_scale")
+        if scale != 1.0:
+            for key in ("unembed.weight", "unembed.bias"):
+                if key in state_dict:
+                    orig_dtype = state_dict[key].dtype
+                    state_dict[key] = (state_dict[key].float() * scale).to(orig_dtype)
+            if self._bridge_ref is not None:
+                orig_model = self._bridge_ref()
+                if orig_model is not None and hasattr(orig_model, "logit_scale"):
+                    orig_model.logit_scale = 1.0
+                    setattr(orig_model, "_tl_logit_scale_folded", True)
+                    setattr(orig_model, "_tl_logit_scale_value", scale)
+        return state_dict
+
+    def setup_component_testing(self, hf_model: Any, bridge_model: Any = None) -> None:
+        if hasattr(hf_model, "config"):
+            setattr(hf_model.config, "_attn_implementation", "eager")
 
 from typing import Any
 
