@@ -151,6 +151,15 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
         _ATTENTION_BRIDGE_REGISTRY[id(component)] = self
         _setup_eager_attention_hook_wrapper()
         self._validate_submodule_declarations(component)
+        for norm_key, hook_attr in (("q_norm", "hook_q_normed"), ("k_norm", "hook_k_normed")):
+            if norm_key in self.submodules:
+                norm_sub = self.submodules[norm_key]
+                hf_norm_name = norm_sub.name or norm_key
+                if getattr(component, hf_norm_name, None) is None and getattr(
+                    norm_sub, "optional", False
+                ):
+                    if hasattr(self, hook_attr):
+                        delattr(self, hook_attr)
         self._qk_norm_phase = self._decide_qk_norm_phase(component)
 
     def _validate_submodule_declarations(self, hf_attn: torch.nn.Module) -> None:
@@ -190,7 +199,15 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
         q_norm = getattr(hf_attn, hf_norm_name, None)
 
         if q_norm is None:
-            raise RuntimeError(f"{self.name}: q_norm declared but HF module has none.")
+            if getattr(self.submodules["q_norm"], "optional", False):
+                return None
+n                norm_sub = self.submodules[norm_key]
+                hf_norm_name = norm_sub.name or norm_key
+                if getattr(component, hf_norm_name, None) is None and getattr(
+                    norm_sub, "optional", False
+                ):
+                    if hasattr(self, hook_attr):
+                        delattr(self, hook_attr)            raise RuntimeError(f"{self.name}: q_norm declared but HF module has none.")
 
         weight = getattr(q_norm, "weight", None)
         head_dim = int(getattr(hf_attn, "head_dim"))
@@ -213,8 +230,29 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
             f"(head_dim,), (n_heads*head_dim,), or (n_heads, head_dim)."
         )
 
+        @staticmethod
+    def _apply_interleaved_rotary_pos_emb(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        unsqueeze_dim: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        dtype = q.dtype
+        q_f, k_f = q.float(), k.float()
+        cos_u = cos.unsqueeze(unsqueeze_dim).float()
+        sin_u = sin.unsqueeze(unsqueeze_dim).float()
+        q_rot = torch.stack((-q_f[..., 1::2], q_f[..., ::2]), dim=-1).flatten(-2)
+        k_rot = torch.stack((-k_f[..., 1::2], k_f[..., ::2]), dim=-1).flatten(-2)
+        return ((q_f * cos_u) + (q_rot * sin_u)).to(dtype), ((k_f * cos_u) + (k_rot * sin_u)).to(dtype)
+
     @staticmethod
-    def _apply_pre_reshape_qk_norm(
+    def _apply_pre_reshape_qk_normn                hf_norm_name = norm_sub.name or norm_key
+                if getattr(component, hf_norm_name, None) is None and getattr(
+                    norm_sub, "optional", False
+                ):
+                    if hasattr(self, hook_attr):
+                        delattr(self, hook_attr)(
         tensor: torch.Tensor,
         norm_module: Any,
         hook: Any,
@@ -347,8 +385,41 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
                     q_gate = q_gate.reshape(*input_shape, -1)
                     query_states = query_states.reshape(*input_shape, -1)
 
-        has_q_norm = "q_norm" in self.submodules
-        has_k_norm = "k_norm" in self.submodules
+        has_q_norm = "q_norm" in self.submodules and getattr(self.submodules["q_norm"], "original_component", None) is not None torch.Tensor,
+        unsqueeze_dim: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        dtype = q.dtype
+        q_f, k_f = q.float(), k.float()
+        cos_u = cos.unsqueeze(unsqueeze_dim).float()
+        sin_u = sin.unsqueeze(unsqueeze_dim).float()
+        q_rot = torch.stack((-q_f[..., 1::2], q_f[..., ::2]), dim=-1).flatten(-2)
+        k_rot = torch.stack((-k_f[..., 1::2], k_f[..., ::2]), dim=-1).flatten(-2)
+        return ((q_f * cos_u) + (q_rot * sin_u)).to(dtype), ((k_f * cos_u) + (k_rot * sin_u)).to(dtype)
+
+    @staticmethod
+    def _apply_pre_reshape_qk_normn                hf_norm_name = norm_sub.name or norm_key
+                if getattr(component, hf_norm_name, None) is None and getattr(
+                    norm_sub, "optional", False
+                ):
+                    if hasattr(self, hook_attr):
+                        delattr(self, hook_attr)
+        has_k_norm = "k_norm" in self.submodules and getattr(self.submodules["k_norm"], "original_component", None) is not None        unsqueeze_dim: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        dtype = q.dtype
+        q_f, k_f = q.float(), k.float()
+        cos_u = cos.unsqueeze(unsqueeze_dim).float()
+        sin_u = sin.unsqueeze(unsqueeze_dim).float()
+        q_rot = torch.stack((-q_f[..., 1::2], q_f[..., ::2]), dim=-1).flatten(-2)
+        k_rot = torch.stack((-k_f[..., 1::2], k_f[..., ::2]), dim=-1).flatten(-2)
+        return ((q_f * cos_u) + (q_rot * sin_u)).to(dtype), ((k_f * cos_u) + (k_rot * sin_u)).to(dtype)
+
+    @staticmethod
+    def _apply_pre_reshape_qk_normn                hf_norm_name = norm_sub.name or norm_key
+                if getattr(component, hf_norm_name, None) is None and getattr(
+                    norm_sub, "optional", False
+                ):
+                    if hasattr(self, hook_attr):
+                        delattr(self, hook_attr)
 
         # Pre-reshape phase (OLMo-2): norm is RMS over the flattened H*d_head
         # dim. When the split path produced 4D [B, S, H, d_head], flatten for
@@ -385,18 +456,21 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
             position_embeddings = self._apply_position_embedding_hooks(position_embeddings)
             cos, sin = position_embeddings
             from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
-
+if getattr(self.config, "rotary_adjacent_pairs", False) or "Cohere" in type(hf_attn).__name__:
+    rope_fn = self._apply_interleaved_rotary_pos_emb
+else:
+    rope_fn = apply_rotary_pos_emb
             # Some models use partial rotary (e.g., GPT-OSS) where cos/sin cover only
             # a portion of head_dim. Split Q/K, rotate the partial dims, recombine.
             rotary_dim = cos.shape[-1]
             if rotary_dim < head_dim:
                 q_rot, q_pass = query_states[..., :rotary_dim], query_states[..., rotary_dim:]
                 k_rot, k_pass = key_states[..., :rotary_dim], key_states[..., rotary_dim:]
-                q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin)
+                q_rot, k_rot = rope_fn(q_rot, k_rot, cos, sin)
                 query_states = torch.cat([q_rot, q_pass], dim=-1)
                 key_states = torch.cat([k_rot, k_pass], dim=-1)
             else:
-                query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+                query_states, key_states = rope_fn(query_states, key_states, cos, sin)
 
         # Fire hook_rot_q/hook_rot_k (post-rotation)
         if hasattr(self, "hook_rot_q"):
