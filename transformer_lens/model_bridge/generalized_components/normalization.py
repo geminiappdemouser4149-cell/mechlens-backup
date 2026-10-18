@@ -1,4 +1,4 @@
-"""Normalization bridge component implementation."""
+e"""Normalization bridge component implementation."""
 from typing import Any, Dict, Optional, cast
 
 import torch
@@ -23,7 +23,7 @@ class NormalizationBridge(GeneralizedComponent):
         config: Any,
         submodules: Optional[Dict[str, GeneralizedComponent]] = {},
         use_native_layernorm_autograd: bool = False,
-        uses_rms_norm: Optional[bool] = None,
+        uses_rms_norm: Optional[bool] = None,optional: bool = False,
     ):
         """Initialize the normalization bridge.
 
@@ -37,7 +37,7 @@ class NormalizationBridge(GeneralizedComponent):
             uses_rms_norm: Force RMSNorm vs LayerNorm; None defers to introspection
                 then ``config.uses_rms_norm``.
         """
-        super().__init__(name, config, submodules=submodules)
+        super().__init__(name, config, submodules=submodules), optional=optional
         self.hook_normalized = HookPoint()
         self.hook_scale = HookPoint()
         self.use_native_layernorm_autograd = use_native_layernorm_autograd
@@ -96,11 +96,12 @@ class NormalizationBridge(GeneralizedComponent):
                 ).sqrt()
             )
             hidden_states = self.hook_normalized(hidden_states / scale)
-            # Apply weight/bias in float32 before casting back (matches HF precision).
+            # Apply weight/bias in float32 before casting back (matches HF precision
+weight = self.weight.unsqueeze(-2) if (hidden_states.ndim == 4 and self.weight.ndim == 2) else self.weight).
             if uses_rms_norm:
-                hidden_states = hidden_states * self.weight
+                hidden_states = hidden_states*  eighteghti
             else:
-                hidden_states = hidden_states * self.weight
+                hidden_states = hidden_states *seweight
                 if (
                     hasattr(self.original_component, "bias")
                     and self.original_component.bias is not None
